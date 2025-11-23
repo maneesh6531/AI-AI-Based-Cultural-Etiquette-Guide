@@ -1,341 +1,175 @@
 document.addEventListener('DOMContentLoaded', function() {
+    // DOM Elements
     const chatMessages = document.getElementById('chat-messages');
     const userInput = document.getElementById('user-input');
     const sendButton = document.getElementById('send-button');
     
-    // Function to add a message to the chat
-    function addMessage(content, isUser) {
-        const messageDiv = document.createElement('div');
-        messageDiv.className = `message ${isUser ? 'user-message' : 'bot-message'}`;
-        
-        const contentDiv = document.createElement('div');
-        contentDiv.className = 'message-content';
-        
-        if (typeof content === 'string') {
-            contentDiv.innerHTML = content;
-        } else {
-            contentDiv.appendChild(content);
-        }
-        
-        messageDiv.appendChild(contentDiv);
-        chatMessages.appendChild(messageDiv);
-        chatMessages.scrollTop = chatMessages.scrollTop + messageDiv.offsetHeight + 20;
-    }
+    // API Configuration
+    const OPENROUTER_API_KEY = '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';
+    const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
+    const MODEL = "anthropic/claude-3-haiku";
+    
+    // Travel Concierge Configuration
+    const CONCIERGE_NAME = "SAMR";
+    const CONCIERGE_GREETING = {
+        role: "assistant",
+        content: `Hello! I'm ${CONCIERGE_NAME}, your personal travel and culture assistant. 🌍✈️\n\nI can help you with:\n• Cultural etiquette do's and don'ts\n• Must-try local foods\n• Travel planning tips\n• Dress code advice\n\nWhere shall we explore today?`
+    };
 
-    // Function to show loading indicator
-    function showLoading(country) {
-        const loadingDiv = document.createElement('div');
-        loadingDiv.className = 'message bot-message';
-        loadingDiv.innerHTML = `
-            <div class="message-content">
-                <div class="loading"></div> Researching ${country}...
-            </div>
-        `;
-        chatMessages.appendChild(loadingDiv);
-        return loadingDiv;
-    }
-
-    // Enhanced API fetch function with timeout
-    async function fetchWithTimeout(resource, options = {}, timeout = 5000) {
-        const controller = new AbortController();
-        const id = setTimeout(() => controller.abort(), timeout);
-        
-        try {
-            const response = await fetch(resource, {
-                ...options,
-                signal: controller.signal
-            });
-            clearTimeout(id);
-            return response;
-        } catch (error) {
-            clearTimeout(id);
-            throw error;
-        }
-    }
-
-    // Fetch country data with fallback
-    async function fetchCountryData(countryName) {
-        try {
-            const response = await fetchWithTimeout(
-                `https://restcountries.com/v3.1/name/${encodeURIComponent(countryName)}`
-            );
-            
-            if (!response.ok) throw new Error('Country not found');
-            
-            const data = await response.json();
-            return data[0];
-        } catch (error) {
-            console.error('Error fetching country data:', error);
-            return null;
-        }
-    }
-
-    // Enhanced AI API call with better error handling
-    async function fetchCulturalInfo(countryName) {
-        const API_URL = 'https://api.deepseek.com/v1/chat/completions';
-        const API_KEY = 'sk-3ac51f10f1f24192b962675b591540c3'; // Replace with your actual API key
-        
-        const prompt = `Provide a detailed cultural guide for ${countryName} including:
-        1. Cultural etiquette (greetings, dining, general behavior)
-        2. Food culture (popular dishes, dining customs)
-        3. Transportation options and tips
-        4. Top tourist attractions and travel advice
-        5. Weather patterns and dress codes by season
-        
-        Format the response as JSON with these exact keys:
+    // Conversation History
+    let conversationHistory = [
         {
-            "etiquette": {
-                "greeting": "",
-                "dining": "",
-                "general": ""
-            },
-            "food": {
-                "popular": "",
-                "diningTips": ""
-            },
-            "transportation": {
-                "types": "",
-                "tips": ""
-            },
-            "touristPlaces": {
-                "top": "",
-                "tips": ""
-            },
-            "culture": "",
-            "weather": {
-                "spring": "",
-                "summer": "",
-                "autumn": "",
-                "winter": ""
-            },
-            "dress": {
-                "spring": "",
-                "summer": "",
-                "autumn": "",
-                "winter": ""
-            }
-        }`;
+            role: "system",
+            content: `You are ${CONCIERGE_NAME}, a friendly but professional travel concierge. Follow these rules:
+1. SPECIALIZE in travel destinations, cultural norms, dining etiquette, and trip planning
+2. RESPOND in warm, helpful tone with bullet points/headings
+3. USE relevant emojis (🌍🍜👔)
+4. For off-topic requests, respond:
+"${CONCIERGE_NAME} here! ✨ I specialize in travel and cultural advice. Try asking:
+• 'What should I pack for Bali in December?'
+• 'How to greet someone in Japan?'
+• 'Best food markets in Bangkok?'"
+5. NEVER answer non-travel questions, even if pressed`
+        },
+        CONCIERGE_GREETING
+    ];
+
+    // Enhanced Topic Validation
+    function isTravelRelated(prompt) {
+        const lowerPrompt = prompt.toLowerCase();
+        
+        // Match any country/region/city name
+        const locationMatch = /\b(india|japan|thailand|france|italy|spain|usa|u\.?s\.?|uk|china|dubai|bali|vietnam|korea|brazil|mexico|canada|australia)\b/i.test(lowerPrompt);
+        
+        // Match travel/etiquette keywords
+        const keywordMatch = [
+            // Travel terms
+            'travel', 'trip', 'visit', 'destination', 'vacation', 'itinerary', 
+            'sightseeing', 'tour', 'holiday', 'backpack', 'suitcase', 'pack',
+            // Food terms
+            'food', 'cuisine', 'dish', 'eat', 'dining', 'restaurant', 'meal',
+            'breakfast', 'lunch', 'dinner', 'snack', 'street food', 'market',
+            // Culture terms
+            'etiquette', 'custom', 'culture', 'manner', 'norm', 'tradition',
+            'polite', 'rude', 'behavior', 'greet', 'handshake', 'bow',
+            // Practical terms
+            'weather', 'season', 'month', 'wear', 'dress', 'attire', 'clothes',
+            'hotel', 'hostel', 'flight', 'airport', 'train', 'bus', 'transport',
+            // Recommendation terms
+            'best', 'top', 'famous', 'popular', 'must', 'should', 'recommend',
+            'advice', 'tip', 'suggestion'
+        ].some(keyword => lowerPrompt.includes(keyword));
+        
+        return locationMatch || keywordMatch;
+    }
+
+    // Send Message Function
+    async function sendMessage() {
+        const query = userInput.value.trim();
+        if (!query) return;
+        
+        // Add user message to UI immediately
+        addMessage(query, 'user');
+        userInput.value = '';
+        
+        // Show typing indicator
+        const loadingId = showLoading();
         
         try {
-            const response = await fetchWithTimeout(API_URL, {
+            // Add to conversation history
+            conversationHistory.push({ role: "user", content: query });
+            
+            // Get AI response
+            const response = await fetch(OPENROUTER_API_URL, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${API_KEY}`
+                    'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+                    'HTTP-Referer': window.location.href,
+                    'X-Title': 'AI Cultural Guide'
                 },
                 body: JSON.stringify({
-                    model: "deepseek-chat",
-                    messages: [{role: "user", content: prompt}],
+                    model: MODEL,
+                    messages: conversationHistory,
                     temperature: 0.7,
-                    response_format: { type: "json_object" }
+                    max_tokens: 1000
                 })
-            }, 8000); // 8 second timeout
+            });
             
-            if (!response.ok) {
-                throw new Error(`API error: ${response.status}`);
-            }
+            if (!response.ok) throw new Error(`API error: ${response.status}`);
             
             const data = await response.json();
             
-            // Parse the JSON content from the response
-            try {
-                return JSON.parse(data.choices[0].message.content);
-            } catch (parseError) {
-                console.error('Error parsing API response:', parseError);
-                throw new Error('Invalid response format from API');
+            // Process response
+            if (data.choices?.[0]?.message) {
+                const aiResponse = data.choices[0].message.content;
+                
+                // Add to conversation history
+                conversationHistory.push({ role: "assistant", content: aiResponse });
+                
+                // Display response
+                removeLoading(loadingId);
+                addMessage(aiResponse, 'bot');
+            } else {
+                throw new Error("Unexpected API response format");
             }
-            
-        } catch (error) {
-            console.error('Error fetching cultural info:', error);
-            // Fallback to mock data if API fails
-            return generateMockCulturalData(countryName);
-        }
-    }
-
-    // Comprehensive mock data generator
-    function generateMockCulturalData(countryName) {
-        const seasons = ['spring', 'summer', 'autumn', 'winter'];
-        
-        return {
-            etiquette: {
-                greeting: getRandomResponse([
-                    `In ${countryName}, a firm handshake with direct eye contact is the standard greeting.`,
-                    `People in ${countryName} typically greet with a slight bow and a smile.`,
-                    `The traditional greeting in ${countryName} involves placing your hands together in a prayer position.`
-                ]),
-                dining: getRandomResponse([
-                    `In ${countryName}, it's considered polite to try a bit of everything served to you.`,
-                    `Dining etiquette in ${countryName} requires you to wait for the host to invite you to start eating.`,
-                    `In ${countryName}, leaving a small amount of food on your plate shows you're satisfied.`
-                ]),
-                general: getRandomResponse([
-                    `In ${countryName}, maintaining personal space is important in public settings.`,
-                    `${countryName} culture values punctuality, so always arrive on time for appointments.`,
-                    `In ${countryName}, it's customary to remove your shoes when entering someone's home.`
-                ])
-            },
-            food: {
-                popular: getRandomResponse([
-                    `Traditional dishes include stews, grilled meats, and seasonal vegetables.`,
-                    `The cuisine features a mix of spicy curries, flatbreads, and yogurt-based sauces.`,
-                    `Local specialties often include seafood, rice dishes, and tropical fruits.`
-                ]),
-                diningTips: getRandomResponse([
-                    `Always use your right hand for eating in ${countryName}.`,
-                    `It's polite to compliment the chef on the meal in ${countryName}.`,
-                    `In ${countryName}, sharing dishes family-style is common practice.`
-                ])
-            },
-            transportation: {
-                types: getRandomResponse([
-                    `Extensive train network, buses, and affordable taxis.`,
-                    `Modern metro system, ride-sharing apps, and bicycle rentals.`,
-                    `Domestic flights, ferries, and well-maintained highways.`
-                ]),
-                tips: getRandomResponse([
-                    `Purchase a transit pass for unlimited travel during your stay.`,
-                    `Taxis are metered but negotiate the fare in advance for long trips.`,
-                    `Trains are the most efficient way to travel between cities.`
-                ])
-            },
-            touristPlaces: {
-                top: getRandomResponse([
-                    `The capital city, ancient ruins, and coastal resorts.`,
-                    `Mountain ranges, national parks, and historic temples.`,
-                    `Modern skyscrapers, traditional markets, and art museums.`
-                ]),
-                tips: getRandomResponse([
-                    `Visit popular sites early in the morning to avoid crowds.`,
-                    `Hire licensed guides at major historical attractions.`,
-                    `Learn a few basic phrases in the local language before visiting.`
-                ])
-            },
-            culture: getRandomResponse([
-                `${countryName} has a rich cultural heritage blending ancient traditions with modern influences.`,
-                `The culture emphasizes family values, respect for elders, and community ties.`,
-                `${countryName}'s culture is known for its vibrant arts, music, and festival traditions.`
-            ]),
-            weather: Object.fromEntries(seasons.map(season => [
-                season,
-                getRandomResponse([
-                    `Mild temperatures with occasional rainfall (15-25°C).`,
-                    `Warm and sunny days perfect for outdoor activities (20-30°C).`,
-                    `Cooler temperatures with crisp mornings and evenings (10-20°C).`,
-                    `Cold weather with potential for snow in some regions (0-10°C).`
-                ])
-            ])),
-            dress: Object.fromEntries(seasons.map(season => [
-                season,
-                getRandomResponse([
-                    `Light layers with a jacket for cooler evenings.`,
-                    `Breathable fabrics and sun protection are essential.`,
-                    `Comfortable walking shoes and versatile clothing.`,
-                    `Warm layers including a coat, hat, and gloves.`
-                ])
-            ]))
-        };
-    }
-
-    function getRandomResponse(responses) {
-        return responses[Math.floor(Math.random() * responses.length)];
-    }
-
-    // Display country information
-    async function displayCountryInfo(countryName) {
-        const loadingElement = showLoading(countryName);
-        
-        try {
-            const countryData = await fetchCountryData(countryName);
-            if (!countryData) {
-                chatMessages.removeChild(loadingElement);
-                addMessage(`I couldn't find information about ${countryName}. Please try another country.`, false);
-                return;
-            }
-            
-            const culturalInfo = await fetchCulturalInfo(countryName);
-            
-            chatMessages.removeChild(loadingElement);
-            
-            const currency = countryData.currencies ? 
-                Object.values(countryData.currencies)[0].name + " (" + 
-                (Object.values(countryData.currencies)[0].symbol || "") + ")" : 
-                "Information not available";
-            
-            const languages = countryData.languages ?
-                Object.values(countryData.languages).join(", ") : 
-                "Information not available";
-            
-            const capital = countryData.capital ? countryData.capital[0] : "Information not available";
-            
-            const infoDiv = document.createElement('div');
-            infoDiv.className = 'country-info';
-            
-            infoDiv.innerHTML = `
-                <h2>${countryData.name.common}</h2>
-                <img class="flag" src="${countryData.flags.png}" alt="Flag of ${countryData.name.common}">
-                
-                <h3>Basic Information</h3>
-                <p><strong>Capital:</strong> ${capital}</p>
-                <p><strong>Currency:</strong> ${currency}</p>
-                <p><strong>Languages:</strong> ${languages}</p>
-                <p><strong>Population:</strong> ${countryData.population?.toLocaleString() || 'N/A'}</p>
-                
-                <h3>Cultural Etiquette</h3>
-                <p><strong>Greetings:</strong> ${culturalInfo.etiquette.greeting}</p>
-                <p><strong>Dining:</strong> ${culturalInfo.etiquette.dining}</p>
-                <p><strong>General Behavior:</strong> ${culturalInfo.etiquette.general}</p>
-                
-                <h3>Food Culture</h3>
-                <p><strong>Popular Dishes:</strong> ${culturalInfo.food.popular}</p>
-                <p><strong>Dining Tips:</strong> ${culturalInfo.food.diningTips}</p>
-                
-                <h3>Transportation</h3>
-                <p><strong>Types:</strong> ${culturalInfo.transportation.types}</p>
-                <p><strong>Tips:</strong> ${culturalInfo.transportation.tips}</p>
-                
-                <h3>Tourist Attractions</h3>
-                <p><strong>Top Places:</strong> ${culturalInfo.touristPlaces.top}</p>
-                <p><strong>Travel Tips:</strong> ${culturalInfo.touristPlaces.tips}</p>
-                
-                <h3>Culture</h3>
-                <p>${culturalInfo.culture}</p>
-                
-                <h3>Weather and Dress Code</h3>
-                <div class="weather-info">
-                    ${Object.entries(culturalInfo.weather).map(([season, desc]) => `
-                        <div class="weather-season">
-                            <h4>${season.charAt(0).toUpperCase() + season.slice(1)}</h4>
-                            <p>${desc}</p>
-                            <p><strong>Dress:</strong> ${culturalInfo.dress[season]}</p>
-                        </div>
-                    `).join('')}
-                </div>
-                
-                <p class="api-notice"><em>Some information may be simulated when API is unavailable.</em></p>
-            `;
-            
-            addMessage(infoDiv, false);
-            
         } catch (error) {
             console.error('Error:', error);
-            chatMessages.removeChild(loadingElement);
-            addMessage(`Sorry, I'm having trouble accessing cultural information for ${countryName}. Please try again later or ask about a different country.`, false);
+            removeLoading(loadingId);
+            addMessage(`${CONCIERGE_NAME} is having connection issues 🛠️. Please try again shortly!`, 'bot');
         }
     }
 
-    // Process user input
-    function processInput() {
-        const input = userInput.value.trim();
-        if (!input) return;
+    // Helper Functions
+    function addMessage(text, sender) {
+        const messageDiv = document.createElement('div');
+        messageDiv.classList.add('message', `${sender}-message`);
         
-        addMessage(input, true);
-        userInput.value = '';
-        displayCountryInfo(input);
+        const contentDiv = document.createElement('div');
+        contentDiv.classList.add('message-content');
+        contentDiv.innerHTML = formatResponseText(text);
+        
+        messageDiv.appendChild(contentDiv);
+        chatMessages.appendChild(messageDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
     }
 
-    // Event listeners
-    sendButton.addEventListener('click', processInput);
+    function formatResponseText(text) {
+        // Convert markdown-like formatting to HTML
+        return text
+            .replace(/^#\s+(.+)$/gm, '<h3>$1</h3>') // Headings
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') // Bold
+            .replace(/\*(.*?)\*/g, '<em>$1</em>') // Italics
+            .replace(/^\s*-\s*(.*)$/gm, '<li>$1</li>') // List items
+            .replace(/\n/g, '<br>') // Line breaks
+            .replace(/<li>.*?<\/li>/g, match => `<ul>${match}</ul>`); // Wrap lists
+    }
+
+    function showLoading() {
+        const loadingId = 'loading-' + Date.now();
+        const loadingDiv = document.createElement('div');
+        loadingDiv.classList.add('message', 'bot-message');
+        loadingDiv.id = loadingId;
+        
+        const contentDiv = document.createElement('div');
+        contentDiv.classList.add('message-content', 'loading-message');
+        contentDiv.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
+        
+        loadingDiv.appendChild(contentDiv);
+        chatMessages.appendChild(loadingDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+        
+        return loadingId;
+    }
+
+    function removeLoading(id) {
+        const loadingElement = document.getElementById(id);
+        if (loadingElement) loadingElement.remove();
+    }
+
+    // Event Listeners
+    sendButton.addEventListener('click', sendMessage);
     userInput.addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') processInput();
+        if (e.key === 'Enter') sendMessage();
     });
 });
