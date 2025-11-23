@@ -5,8 +5,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const sendButton = document.getElementById('send-button');
     
     // API Configuration
-    const OPENROUTER_API_KEY = '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';
-    const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
+    const OPENROUTER_API_KEY = 'Your API Key';
+    const OPENROUTER_API_URL = 'API URL';
     const MODEL = "anthropic/claude-3-haiku";
     
     // Travel Concierge Configuration
@@ -173,3 +173,4 @@ document.addEventListener('DOMContentLoaded', function() {
         if (e.key === 'Enter') sendMessage();
     });
 });
+
